@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: arc-runner
+  namespace: arc-runners
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arc-runner
+  namespace: arc-runners
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log", "secrets", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner
+  namespace: arc-runners
+subjects:
+  - kind: ServiceAccount
+    name: arc-runner
+    namespace: arc-runners
+roleRef:
+  kind: Role
+  name: arc-runner
+  apiGroup: rbac.authorization.k8s.io

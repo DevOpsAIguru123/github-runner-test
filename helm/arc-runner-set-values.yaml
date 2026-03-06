@@ -14,16 +14,8 @@ runnerScaleSetName: "aks-runners"
 minRunners: 0
 maxRunners: 5
 
-# Kubernetes container mode: each runner job runs as a pod (no Docker-in-Docker)
-containerMode:
-  type: "kubernetes"
-  kubernetesModeWorkVolumeClaim:
-    accessModes:
-      - ReadWriteOnce
-    storageClassName: default
-    resources:
-      requests:
-        storage: 1Gi
+# Default mode: runner executes steps directly inside the pod (no DinD, no sub-pods)
+# Simpler and more reliable than kubernetes container mode
 
 # Runner pod template
 template:
@@ -31,6 +23,8 @@ template:
     containers:
       - name: runner
         image: ghcr.io/actions/actions-runner:latest
+        command: ["/bin/bash", "-c"]
+        args: ["/home/runner/run.sh 2>&1"]
         resources:
           requests:
             cpu: "500m"
@@ -39,13 +33,5 @@ template:
             cpu: "2"
             memory: "2Gi"
         env:
-          - name: RUNNER_FEATURE_FLAG_EPHEMERAL
-            value: "true"
-    # Prefer scheduling runner pods on nodes with available capacity
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/name: aks-runners
+          - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
+            value: "1"
