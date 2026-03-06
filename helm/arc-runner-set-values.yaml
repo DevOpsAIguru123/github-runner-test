@@ -1,0 +1,51 @@
+# Values for: gha-runner-scale-set
+# Chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+#
+# Replace GITHUB_OWNER and GITHUB_REPO with your values before deploying.
+# The secret 'github-pat-secret' is created by deploy-runners.sh using your PAT.
+
+githubConfigUrl: "https://github.com/GITHUB_OWNER/GITHUB_REPO"
+githubConfigSecret: github-pat-secret
+
+# Name used in runs-on: in GitHub Actions workflows
+runnerScaleSetName: "aks-runners"
+
+# Autoscaling bounds: scale to 0 when idle, up to 5 concurrent jobs
+minRunners: 0
+maxRunners: 5
+
+# Kubernetes container mode: each runner job runs as a pod (no Docker-in-Docker)
+containerMode:
+  type: "kubernetes"
+  kubernetesModeWorkVolumeClaim:
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: default
+    resources:
+      requests:
+        storage: 1Gi
+
+# Runner pod template
+template:
+  spec:
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        env:
+          - name: RUNNER_FEATURE_FLAG_EPHEMERAL
+            value: "true"
+    # Prefer scheduling runner pods on nodes with available capacity
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: aks-runners

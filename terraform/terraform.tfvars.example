@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+resource_group_name = "rg-github-runners"
+location            = "eastus"
+cluster_name        = "aks-github-runners"
+node_vm_size        = "Standard_D2s_v3"
+min_node_count      = 1
+max_node_count      = 3
+
+tags = {
+  environment = "cicd"
+  managed-by  = "terraform"
+  team        = "platform"
+}

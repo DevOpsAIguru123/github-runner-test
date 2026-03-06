@@ -1,0 +1,43 @@
+name: Test AKS Self-Hosted Runner
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  test-runner:
+    name: Run on AKS
+    runs-on: aks-runners
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Print runner info
+        run: |
+          echo "===== Runner Environment ====="
+          echo "Hostname     : $(hostname)"
+          echo "OS           : $(uname -a)"
+          echo "User         : $(whoami)"
+          echo "Working dir  : $(pwd)"
+          echo "=============================="
+
+      - name: List workspace files
+        run: ls -la
+
+      - name: Confirm we are on AKS
+        env:
+          RUNNER_NAME: ${{ runner.name }}
+          RUNNER_OS: ${{ runner.os }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "Runner name  : $RUNNER_NAME"
+          echo "Runner OS    : $RUNNER_OS"
+          echo "GitHub repo  : $REPO"
+          echo "Triggered by : $ACTOR"
+          echo "Commit SHA   : $SHA"
