@@ -4,7 +4,7 @@
 # Replace GITHUB_OWNER and GITHUB_REPO with your values before deploying.
 # The secret 'github-pat-secret' is created by deploy-runners.sh using your PAT.
 
-githubConfigUrl: "https://github.com/GITHUB_OWNER/GITHUB_REPO"
+githubConfigUrl: "https://github.com/DevOpsAIguru123/github-runner-test"
 githubConfigSecret: github-pat-secret
 
 # Name used in runs-on: in GitHub Actions workflows
