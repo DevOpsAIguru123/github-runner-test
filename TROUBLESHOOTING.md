@@ -615,4 +615,77 @@ kubectl delete ephemeralrunner <NAME> -n arc-runners --force --grace-period=0
 | `k8s/runner-rbac.yaml` | RBAC for arc-runner service account |
 | `scripts/deploy-runners.sh` | Full post-Terraform deployment script |
 | `examples/storage-account/` | Sample Terraform — Azure Storage Account via OIDC |
+| `examples/databricks-cluster/` | Sample Terraform — Databricks cluster via WI token exchange |
 | `.github/workflows/deploy-storage.yml` | Workflow running Terraform on AKS runner with WI |
+| `.github/workflows/deploy-databricks.yml` | Workflow deploying Databricks cluster via manual AAD token exchange |
+
+---
+
+## 6. Databricks Authentication Issues
+
+> See full details with architecture diagrams and all failed approaches in [`examples/databricks-cluster/README.md`](examples/databricks-cluster/README.md).
+
+### Issue 13: `azure_use_oidc` — unsupported argument in Databricks provider
+**Symptom:** `Unsupported argument: An argument named "azure_use_oidc" is not expected here.`
+**Fix:** Remove it. `azure_use_oidc` is an `azurerm` provider argument, not Databricks.
+
+---
+
+### Issue 14: Databricks provider v1.38 — no AKS Workload Identity support
+**Symptom:** `cannot configure default credentials`
+**Fix:** Upgrade provider to `~> 1.85`:
+```hcl
+databricks = {
+  source  = "databricks/databricks"
+  version = "~> 1.85"
+}
+```
+
+---
+
+### Issue 15: `azure_federated_token_file` / `azure_use_msi` — both fail for AKS WI pods
+
+| Approach | Why it fails |
+|----------|-------------|
+| `azure_federated_token_file` | Targets GitHub OIDC audience, not AKS WI (`api://AzureADTokenExchange`) |
+| `azure_use_msi = true` | Calls IMDS at `169.254.169.254` — returns **node** identity, not pod WI identity |
+
+---
+
+### Issue 16: `DATABRICKS_AAD_TOKEN` env var — not recognized by provider
+**Symptom:** Token exchange succeeded but provider still failed auth.
+**Cause:** The Databricks Go SDK reads `DATABRICKS_TOKEN`, not `DATABRICKS_AAD_TOKEN`.
+**Fix:** Export the AAD token as `DATABRICKS_TOKEN`.
+
+---
+
+### Issue 17 (Resolved): Working solution — manual AAD token exchange
+
+Add this step to the workflow **before** Terraform runs:
+
+```yaml
+- name: Exchange WI token for Databricks AAD token
+  run: |
+    OIDC_TOKEN=$(cat "${AZURE_FEDERATED_TOKEN_FILE}")
+    RESPONSE=$(curl -s -X POST \
+      "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      --data-urlencode "grant_type=client_credentials" \
+      --data-urlencode "client_id=${AZURE_CLIENT_ID}" \
+      --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
+      --data-urlencode "client_assertion=${OIDC_TOKEN}" \
+      --data-urlencode "scope=2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default")
+    TOKEN=$(echo "$RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+    if [ -z "$TOKEN" ]; then echo "Token exchange failed: $RESPONSE"; exit 1; fi
+    echo "DATABRICKS_TOKEN=${TOKEN}" >> $GITHUB_ENV
+```
+
+Simplify the Databricks provider to:
+```hcl
+provider "databricks" {
+  host = var.databricks_host
+  # DATABRICKS_TOKEN read automatically from env
+}
+```
+
+All required env vars (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`) are injected automatically by the AKS WI mutating webhook — no secrets needed.
