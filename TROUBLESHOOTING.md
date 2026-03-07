@@ -5,6 +5,11 @@
 2. [End-to-End Workflow](#2-end-to-end-workflow)
 3. [Step-by-Step Setup](#3-step-by-step-setup)
 4. [Issues Encountered & Fixes](#4-issues-encountered--fixes)
+   - [Issue 8: `node` not found — setup-terraform wrapper](#issue-8-node-no-such-file-or-directory-when-running-terraform-in-workflow)
+   - [Issue 9: azurerm falls back to Azure CLI — OIDC token file mismatch](#issue-9-terraform-azurerm-provider-falls-back-to-azure-cli--az-not-found)
+   - [Issue 10: GitHub environment variables not injected](#issue-10-github-environment-scoped-variables-not-injected-into-workflow)
+   - [Issue 11: `helm upgrade` fails — no deployed releases](#issue-11-helm-upgrade-fails--has-no-deployed-releases)
+   - [Issue 12: Runner offline after helm upgrade (placeholder URL)](#issue-12-runner-goes-offline-after-helm-upgrade-placeholder-url-in-values-file)
 5. [Key Concepts Reference](#5-key-concepts-reference)
 
 ---
@@ -397,6 +402,137 @@ kubectl rollout restart deployment arc-controller-gha-rs-controller -n arc-syste
 
 ---
 
+### Issue 8: `node: No such file or directory` when running Terraform in workflow
+**Symptom:**
+```
+/usr/bin/env: 'node': No such file or directory
+Error: Process completed with exit code 127.
+```
+Step: `Run terraform init`
+
+**Cause:** `hashicorp/setup-terraform@v3` by default wraps the `terraform` binary with a Node.js shim script so the action can capture step outputs. The self-hosted AKS runner container image (`ghcr.io/actions/actions-runner:latest`) does not have `node` in PATH, so the wrapper fails immediately.
+
+**Fix:** Disable the wrapper in the workflow step:
+```yaml
+- name: Setup Terraform
+  uses: hashicorp/setup-terraform@v3
+  with:
+    terraform_version: "~1.5"
+    terraform_wrapper: false   # ← prevents node dependency
+```
+With `terraform_wrapper: false` the raw terraform binary is placed in PATH and invoked directly with no Node.js involved.
+
+---
+
+### Issue 9: Terraform azurerm provider falls back to Azure CLI — `az` not found
+**Symptom:**
+```
+Error: unable to build authorizer for Resource Manager API:
+  could not configure AzureCli Authorizer:
+  could not parse Azure CLI version:
+  launching Azure CLI: exec: "az": executable file not found in $PATH
+```
+**Cause:** The `azurerm` Terraform provider tries OIDC authentication but fails silently, then falls back to Azure CLI, which is also absent from the runner container.
+
+OIDC fails because the provider reads the token file from `ARM_OIDC_TOKEN_FILE_PATH`, but AKS Workload Identity injects it under the env var `AZURE_FEDERATED_TOKEN_FILE`. These are **two different variable names** for the same file. Without `ARM_OIDC_TOKEN_FILE_PATH` being set, the provider cannot locate the token.
+
+**Fix — set `ARM_OIDC_TOKEN_FILE_PATH` at the runner pod level (Helm):**
+
+The WI webhook always mounts the token at a fixed path. Set this once in `helm/arc-runner-set-values.yaml` so every workflow inherits it automatically:
+
+```yaml
+template:
+  spec:
+    containers:
+      - name: runner
+        env:
+          - name: ARM_OIDC_TOKEN_FILE_PATH
+            value: "/var/run/secrets/azure/tokens/azure-identity-token"
+```
+
+Apply with:
+```bash
+helm upgrade aks-runners \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+  --version 0.9.3 \
+  --namespace arc-runners \
+  --values helm/arc-runner-set-values.yaml
+```
+
+**AKS Workload Identity env var mapping:**
+
+| Injected by WI webhook | Read by azurerm provider |
+|---|---|
+| `AZURE_FEDERATED_TOKEN_FILE` | `ARM_OIDC_TOKEN_FILE_PATH` |
+| `AZURE_CLIENT_ID` | `ARM_CLIENT_ID` |
+| `AZURE_TENANT_ID` | `ARM_TENANT_ID` |
+
+---
+
+### Issue 10: GitHub environment-scoped variables not injected into workflow
+**Symptom:**
+- `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID` are empty in the runner
+- Workflow was created with variables scoped to a GitHub **environment** (e.g. `dev`) rather than repo-level variables
+
+**Cause:** GitHub environment variables are only injected when the job explicitly declares `environment: <name>`. Without that declaration, the runner receives only repo-level variables and secrets.
+
+**Fix:** Add `environment:` to the job in the workflow:
+```yaml
+jobs:
+  terraform:
+    runs-on: aks-runners
+    environment: dev    # ← required to inject env-scoped variables
+```
+
+---
+
+### Issue 11: `helm upgrade` fails — "has no deployed releases"
+**Symptom:**
+```
+Error: UPGRADE FAILED: "arc-runner-set" has no deployed releases
+```
+**Cause:** Using a release name that was never successfully installed. The actual deployed release may have a different name.
+
+**Fix:** List all releases to find the correct name, then upgrade that:
+```bash
+helm list -n arc-runners
+helm list -n arc-systems
+```
+
+Use `--install` to handle both install and upgrade in one command:
+```bash
+helm upgrade --install <CORRECT-RELEASE-NAME> \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+  --version 0.9.3 \
+  --namespace arc-runners \
+  --values helm/arc-runner-set-values.yaml
+```
+
+---
+
+### Issue 12: Runner goes offline after `helm upgrade` (placeholder URL in values file)
+**Symptom:**
+- Listener pod starts then immediately crashes with:
+  ```
+  createSession failed: failed to get runner registration token on refresh:
+  github api error: StatusCode 404, RequestID ...: {"message":"Not Found"}
+  ```
+- GitHub shows runner as Offline
+
+**Cause:** `helm/arc-runner-set-values.yaml` still contained the placeholder `https://github.com/GITHUB_OWNER/GITHUB_REPO`. When `helm upgrade` was run using this file as `--values`, it overwrote the correct URL that the previous Helm revision had stored.
+
+**Fix:** Replace the placeholder in the values file with the real repo URL before upgrading:
+```yaml
+# helm/arc-runner-set-values.yaml
+githubConfigUrl: "https://github.com/DevOpsAIguru123/github-runner-test"
+```
+
+Then re-run the upgrade. The listener pod will restart and reconnect successfully.
+
+> **Lesson:** Always commit the real `githubConfigUrl` value to the Helm values file. Do not leave placeholders in files that are used directly with `--values` in `helm upgrade`.
+
+---
+
 ## 5. Key Concepts Reference
 
 ### ARC v2 JIT (Just-In-Time) Tokens
@@ -472,7 +608,11 @@ kubectl delete ephemeralrunner <NAME> -n arc-runners --force --grace-period=0
 | `terraform/main.tf` | AKS cluster — public, kubenet, autoscaling |
 | `terraform/variables.tf` | Cluster sizing and naming |
 | `terraform/outputs.tf` | kubeconfig, cluster FQDN, get-credentials command |
+| `terraform/workload-identity.tf` | User-assigned MI, Contributor role, federated credential |
 | `helm/arc-controller-values.yaml` | ARC controller Helm values |
-| `helm/arc-runner-set-values.yaml` | Runner scale set — min/max runners, image, command fix |
+| `helm/arc-runner-set-values.yaml` | Runner scale set — min/max runners, image, command fix, `ARM_OIDC_TOKEN_FILE_PATH` |
+| `k8s/workload-identity-sa.yaml` | Kubernetes service account with WI annotation |
 | `k8s/runner-rbac.yaml` | RBAC for arc-runner service account |
 | `scripts/deploy-runners.sh` | Full post-Terraform deployment script |
+| `examples/storage-account/` | Sample Terraform — Azure Storage Account via OIDC |
+| `.github/workflows/deploy-storage.yml` | Workflow running Terraform on AKS runner with WI |
