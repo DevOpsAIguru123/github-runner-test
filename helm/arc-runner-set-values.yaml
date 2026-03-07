@@ -39,18 +39,11 @@ template:
         env:
           - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
             value: "1"
-          # ── Azure / Terraform auth (Workload Identity, no secrets) ─────────────
-          # WI webhook injects AZURE_FEDERATED_TOKEN_FILE, AZURE_CLIENT_ID,
-          # AZURE_TENANT_ID automatically. We map them to the ARM_ names that the
-          # azurerm Terraform provider reads, and add the subscription ID here so
-          # workflows need zero Azure-specific configuration.
-          - name: ARM_CLIENT_ID
-            value: "81f11862-717d-4da8-b09d-c93f4e6ea9af"
-          - name: ARM_TENANT_ID
-            value: "342b3f4c-6303-47b1-bea2-e0c6b2200b67"
+          # ── Azure / Terraform auth (AKS Workload Identity) ────────────────────
+          # WI mutating webhook automatically injects:
+          #   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE
+          # azurerm (use_aks_workload_identity=true) and databricks providers
+          # read these directly — no manual mapping needed.
+          # ARM_SUBSCRIPTION_ID is the only value not injected by WI.
           - name: ARM_SUBSCRIPTION_ID
             value: "60992dbe-c574-4373-948b-bb02216c5b0a"
-          - name: ARM_USE_OIDC
-            value: "true"
-          - name: ARM_OIDC_TOKEN_FILE_PATH
-            value: "/var/run/secrets/azure/tokens/azure-identity-token"

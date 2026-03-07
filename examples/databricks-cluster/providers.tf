@@ -9,13 +9,10 @@ terraform {
   }
 }
 
-# Databricks provider authenticates using the runner pod's Workload Identity.
-# ARM_CLIENT_ID, ARM_TENANT_ID, ARM_USE_OIDC, ARM_OIDC_TOKEN_FILE_PATH are
-# already set at the runner pod level — no additional config needed here.
+# Databricks provider automatically uses AKS Workload Identity env vars
+# (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE) injected
+# by the WI mutating webhook — no explicit auth configuration needed.
 provider "databricks" {
   host                        = var.databricks_host
   azure_workspace_resource_id = var.databricks_workspace_resource_id
-  azure_client_id             = var.arm_client_id
-  azure_tenant_id             = var.arm_tenant_id
-  azure_use_oidc              = true
 }

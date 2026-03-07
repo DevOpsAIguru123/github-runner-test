@@ -10,18 +10,6 @@ variable "databricks_workspace_resource_id" {
   default     = "/subscriptions/60992dbe-c574-4373-948b-bb02216c5b0a/resourceGroups/gpt-foundry/providers/Microsoft.Databricks/workspaces/demo-workspace"
 }
 
-variable "arm_client_id" {
-  description = "Client ID of the managed identity — matches ARM_CLIENT_ID env var on the runner pod"
-  type        = string
-  default     = ""  # picked up from ARM_CLIENT_ID env var if left empty
-}
-
-variable "arm_tenant_id" {
-  description = "Azure tenant ID — matches ARM_TENANT_ID env var on the runner pod"
-  type        = string
-  default     = ""  # picked up from ARM_TENANT_ID env var if left empty
-}
-
 variable "cluster_name" {
   description = "Display name for the Databricks cluster"
   type        = string

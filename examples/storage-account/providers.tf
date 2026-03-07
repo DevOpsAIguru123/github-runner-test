@@ -20,8 +20,7 @@ terraform {
 provider "azurerm" {
   features {}
 
-  # Workload Identity authentication — no client secret needed.
-  # ARM_CLIENT_ID, ARM_TENANT_ID, ARM_SUBSCRIPTION_ID, ARM_USE_OIDC
-  # are injected as env vars by the GitHub Actions workflow.
-  use_oidc = true
+  # AKS Workload Identity — reads AZURE_CLIENT_ID, AZURE_TENANT_ID,
+  # and AZURE_FEDERATED_TOKEN_FILE injected by the WI mutating webhook.
+  use_aks_workload_identity = true
 }
