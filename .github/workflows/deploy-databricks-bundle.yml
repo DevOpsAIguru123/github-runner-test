@@ -1,0 +1,67 @@
+name: Deploy Databricks Asset Bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Bundle action to run"
+        required: true
+        default: "validate"
+        type: choice
+        options:
+          - validate
+          - plan
+          - deploy
+          - destroy
+      target:
+        description: "Deployment target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+jobs:
+  bundle:
+    name: Bundle ${{ github.event.inputs.action }} (${{ github.event.inputs.target }})
+    runs-on: aks-runners
+
+    # AKS WI webhook injects AZURE_CLIENT_ID, AZURE_TENANT_ID,
+    # AZURE_FEDERATED_TOKEN_FILE into the runner pod automatically.
+    # DATABRICKS_AUTH_TYPE=azure-workload-identity tells the Databricks CLI
+    # to use those env vars directly — no az login or token exchange needed.
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: azure-workload-identity
+      BUNDLE_ACTION: ${{ github.event.inputs.action }}
+      BUNDLE_TARGET: ${{ github.event.inputs.target }}
+
+    defaults:
+      run:
+        working-directory: examples/databricks-cluster
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate bundle
+        run: databricks bundle validate -t "$BUNDLE_TARGET"
+
+      - name: Plan bundle
+        run: databricks bundle deploy --dry-run -t "$BUNDLE_TARGET"
+        if: >
+          github.event.inputs.action == 'plan' ||
+          github.event.inputs.action == 'deploy'
+
+      - name: Deploy bundle
+        run: databricks bundle deploy -t "$BUNDLE_TARGET"
+        if: github.event.inputs.action == 'deploy'
+
+      - name: Destroy bundle
+        run: databricks bundle destroy --auto-approve -t "$BUNDLE_TARGET"
+        if: github.event.inputs.action == 'destroy'
