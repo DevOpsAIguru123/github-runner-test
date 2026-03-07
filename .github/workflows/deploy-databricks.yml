@@ -1,0 +1,59 @@
+name: Deploy Databricks Cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to run"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action }}
+    runs-on: aks-runners
+
+    defaults:
+      run:
+        working-directory: examples/databricks-cluster
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.5"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        continue-on-error: true
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        env:
+          ACTION: ${{ github.event.inputs.action }}
+        run: terraform plan -out=tfplan
+        if: >
+          github.event.inputs.action == 'plan' ||
+          github.event.inputs.action == 'apply'
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        if: github.event.inputs.action == 'apply'
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+        if: github.event.inputs.action == 'destroy'

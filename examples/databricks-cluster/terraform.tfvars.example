@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and fill in your workspace values.
+# arm_client_id and arm_tenant_id are optional — they are read from the
+# ARM_CLIENT_ID / ARM_TENANT_ID env vars already set on the runner pod.
+
+databricks_host                  = "https://adb-7405614044593132.12.azuredatabricks.net"
+databricks_workspace_resource_id = "/subscriptions/60992dbe-c574-4373-948b-bb02216c5b0a/resourceGroups/gpt-foundry/providers/Microsoft.Databricks/workspaces/demo-workspace"
+
+cluster_name             = "aks-runner-cluster"
+spark_version            = "15.4.x-scala2.12"
+node_type_id             = "Standard_DS3_v2"
+auto_termination_minutes = 30
