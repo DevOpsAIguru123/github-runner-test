@@ -17,18 +17,10 @@ jobs:
   terraform:
     name: Terraform ${{ github.event.inputs.action }}
     runs-on: aks-runners
-    environment: dev
 
     defaults:
       run:
         working-directory: examples/storage-account
-
-    env:
-      # Workload Identity auth — no client secret required.
-      ARM_CLIENT_ID:            ${{ vars.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID:            ${{ vars.AZURE_TENANT_ID }}
-      ARM_SUBSCRIPTION_ID:      ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      ARM_USE_OIDC:             "true"
 
     steps:
       - name: Checkout
