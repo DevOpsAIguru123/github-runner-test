@@ -18,4 +18,8 @@ provider "databricks" {
   host                        = var.databricks_host
   azure_workspace_resource_id = var.databricks_workspace_resource_id
   azure_client_id             = var.managed_identity_client_id
+  # Explicitly point to the WI token file so the SDK activates the
+  # AzureWorkloadIdentityCredentials auth path (reads AZURE_FEDERATED_TOKEN_FILE
+  # env var, but setting it here removes env-var discovery ambiguity).
+  azure_federated_token_file  = "/var/run/secrets/azure/tokens/azure-identity-token"
 }
