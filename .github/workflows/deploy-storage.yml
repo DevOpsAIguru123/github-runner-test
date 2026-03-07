@@ -50,6 +50,9 @@ jobs:
             exit 1
           fi
 
+      - name: Export OIDC token path for Terraform
+        run: echo "ARM_OIDC_TOKEN_FILE_PATH=${AZURE_FEDERATED_TOKEN_FILE}" >> $GITHUB_ENV
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
