@@ -42,7 +42,7 @@ jobs:
             echo "Token exchange failed: $RESPONSE"
             exit 1
           fi
-          echo "DATABRICKS_AAD_TOKEN=${TOKEN}" >> $GITHUB_ENV
+          echo "DATABRICKS_TOKEN=${TOKEN}" >> $GITHUB_ENV
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
