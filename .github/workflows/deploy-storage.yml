@@ -17,6 +17,7 @@ jobs:
   terraform:
     name: Terraform ${{ github.event.inputs.action }}
     runs-on: aks-runners
+    environment: dev
 
     defaults:
       run:
