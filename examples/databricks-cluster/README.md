@@ -1,6 +1,6 @@
-# Databricks Cluster — Terraform via AKS Self-Hosted Runner
+# Databricks on AKS Self-Hosted Runners — Terraform vs Databricks CLI
 
-Deploy a Databricks cluster using Terraform running inside an AKS self-hosted runner pod authenticated via AKS Workload Identity.
+Deploy and manage Databricks resources from AKS self-hosted runner pods authenticated via AKS Workload Identity. This README covers two approaches — Terraform and the Databricks CLI — including their authentication flows, trade-offs, and when to use each.
 
 ---
 
@@ -10,9 +10,10 @@ Deploy a Databricks cluster using Terraform running inside an AKS self-hosted ru
 2. [Prerequisites](#2-prerequisites)
 3. [Setup Steps](#3-setup-steps)
 4. [How Authentication Works](#4-how-authentication-works)
-5. [Running the Workflow](#5-running-the-workflow)
-6. [Authentication Issues & Fixes (Full Journey)](#6-authentication-issues--fixes-full-journey)
-7. [Key Concepts](#7-key-concepts)
+5. [Approach Comparison: Terraform vs Databricks CLI](#5-approach-comparison-terraform-vs-databricks-cli)
+6. [Running the Workflows](#6-running-the-workflows)
+7. [Authentication Issues & Fixes (Full Journey)](#7-authentication-issues--fixes-full-journey)
+8. [Key Concepts](#8-key-concepts)
 
 ---
 
@@ -188,7 +189,126 @@ This is the fixed Azure resource ID for all Azure Databricks workspaces globally
 
 ---
 
-## 5. Running the Workflow
+## 5. Approach Comparison: Terraform vs Databricks CLI
+
+Two workflows exist for deploying Databricks resources from AKS runners. They differ significantly in authentication, use cases, and operational overhead.
+
+---
+
+### Quick Summary
+
+| | Terraform (`deploy-databricks.yml`) | Databricks CLI / DAB (`deploy-databricks-bundle.yml`) |
+|--|--|--|
+| **Tool** | `hashicorp/setup-terraform` | `databricks/setup-cli` |
+| **Auth type** | Manual token exchange → `DATABRICKS_TOKEN` | `DATABRICKS_AUTH_TYPE: azure-workload-identity` |
+| **WI token exchange** | Manual (`curl` in workflow step) | Internal (CLI Go SDK handles it) |
+| **Extra steps needed** | Yes — token exchange before `terraform init` | No — just set env var |
+| **Requires `az` CLI** | No | No |
+| **Workflow complexity** | Higher | Lower |
+| **Use case** | Infrastructure — clusters, policies, permissions, instance pools | Application deployments — jobs, pipelines, notebooks, DLT |
+| **State management** | Terraform state file (remote backend recommended) | Databricks-managed (no state file) |
+| **Drift detection** | Yes — `terraform plan` shows drift | No — bundle deploy is always full redeploy |
+| **Supports rollback** | Yes — `terraform destroy` or previous state | Limited — manual or re-deploy previous bundle |
+| **Resource types** | All Databricks resources + Azure resources in same plan | Databricks application resources only (jobs, pipelines, notebooks) |
+| **Recommended for** | Platform/infra teams managing workspace configuration | Data/ML teams deploying workloads |
+
+---
+
+### Authentication Deep-Dive
+
+Both approaches are secretless and use the same AKS Workload Identity injection. The difference is **who handles the OIDC token exchange**.
+
+#### Terraform: Manual token exchange required
+
+```
+AKS pod (WI env vars injected by webhook)
+  │
+  │ Workflow step: curl → login.microsoftonline.com
+  │   grant_type=client_credentials
+  │   client_assertion=<WI OIDC JWT>
+  │   scope=2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default
+  │   → returns Azure AD access token
+  │
+  ▼ DATABRICKS_TOKEN=<aad-token>
+  │
+Terraform databricks provider
+  └── reads DATABRICKS_TOKEN from env, uses as bearer token
+```
+
+**Why manual?** The Databricks Terraform provider's internal auth chain does not reliably activate the WI credential path:
+- `azure_federated_token_file` targets GitHub OIDC audience, not AKS (`api://AzureADTokenExchange`)
+- `azure_use_msi = true` calls IMDS at `169.254.169.254` — returns the **node's** managed identity, not the pod's WI identity
+- `azure_client_id` alone is not enough; the provider doesn't auto-detect WI env vars
+
+The workaround: exchange the WI OIDC JWT for an AAD token yourself and hand the provider a ready-made token via `DATABRICKS_TOKEN`.
+
+#### Databricks CLI: Native WI support, no manual exchange
+
+```
+AKS pod (WI env vars injected by webhook)
+  │
+  │ env:
+  │   DATABRICKS_AUTH_TYPE: azure-workload-identity
+  │   DATABRICKS_HOST: https://adb-xxx.azuredatabricks.net
+  │
+  ▼
+Databricks CLI (Go SDK)
+  └── detects WI env vars (AZURE_CLIENT_ID, AZURE_TENANT_ID,
+      AZURE_FEDERATED_TOKEN_FILE), performs OIDC exchange internally
+  └── no curl step, no DATABRICKS_TOKEN needed
+```
+
+**Why it works natively?** The Databricks CLI is built on the Databricks Go SDK, which implements `azure-workload-identity` as a first-class credential type. When you set `DATABRICKS_AUTH_TYPE: azure-workload-identity`, the SDK:
+1. Reads `AZURE_FEDERATED_TOKEN_FILE` → gets the WI OIDC JWT
+2. Reads `AZURE_CLIENT_ID` and `AZURE_TENANT_ID`
+3. Calls `login.microsoftonline.com` with a JWT bearer assertion internally
+4. Uses the resulting AAD token for all Databricks API calls
+
+---
+
+### When to Use Each
+
+#### Use Terraform when:
+- Managing **workspace-level infrastructure**: cluster policies, instance pools, permissions, SQL warehouses, Unity Catalog metastore
+- You need **state tracking** — Terraform records what it created and can detect drift
+- You need to deploy **Azure resources alongside Databricks resources** in the same plan (e.g. create a storage account and mount it in Databricks in one apply)
+- You need **destroy support** — cleanly tear down resources by reverting state
+
+#### Use Databricks CLI / Asset Bundles when:
+- Deploying **workloads**: jobs, Delta Live Tables pipelines, notebooks, model serving endpoints
+- You want **zero state management** — bundles are self-describing and Databricks tracks deployments internally
+- Your team follows a **data-as-code / MLOps** pattern where jobs are owned by data/ML engineers, not infra teams
+- You want **multi-environment promotion** (`bundle deploy -t dev`, `bundle deploy -t prod`) with target-specific variable overrides
+
+#### Use both together (recommended for platform teams):
+```
+Platform team (Terraform)          Data/ML team (Databricks CLI)
+─────────────────────────          ─────────────────────────────
+Workspace config                   Jobs & pipelines
+Cluster policies                   Notebooks
+Instance pools                     DLT pipelines
+Unity Catalog                      ML endpoints
+Permissions / groups               Workflows
+       │                                  │
+       └──── Both run on AKS runners ─────┘
+             Both use AKS Workload Identity
+             Both are secretless
+```
+
+---
+
+### Workflow Files
+
+| Workflow | File | Auth approach |
+|---|---|---|
+| Terraform | `.github/workflows/deploy-databricks.yml` | Manual token exchange → `DATABRICKS_TOKEN` |
+| Databricks CLI | `.github/workflows/deploy-databricks-bundle.yml` | `DATABRICKS_AUTH_TYPE: azure-workload-identity` |
+
+---
+
+## 6. Running the Workflows
+
+### Terraform workflow (`deploy-databricks.yml`)
 
 The workflow at `.github/workflows/deploy-databricks.yml` supports three actions:
 
@@ -200,6 +320,19 @@ The workflow at `.github/workflows/deploy-databricks.yml` supports three actions
 
 **Trigger:** Go to **Actions → Deploy Databricks Cluster → Run workflow → Choose action → Run workflow**
 
+### Databricks CLI / DAB workflow (`deploy-databricks-bundle.yml`)
+
+The workflow at `.github/workflows/deploy-databricks-bundle.yml` supports four actions:
+
+| Action | Effect |
+|--------|--------|
+| `validate` | Validates `databricks.yml` bundle config — always runs |
+| `plan` | Dry-run deploy — shows what would change |
+| `deploy` | Deploys the bundle to the target environment |
+| `destroy` | Removes all bundle-managed resources from the target |
+
+**Trigger:** Go to **Actions → Deploy Databricks Asset Bundle → Run workflow → Choose action + target → Run workflow**
+
 **Monitor:**
 ```bash
 # Watch runner pod
@@ -209,12 +342,15 @@ kubectl get pods -n arc-runners -w
 kubectl logs -n arc-runners <runner-pod-name> -f
 ```
 
-**Verify cluster was created:**
-Go to your Databricks workspace → **Compute** → look for `aks-runner-cluster`.
+**GitHub repo variable required:**
+```
+DATABRICKS_HOST = https://adb-7405614044593132.12.azuredatabricks.net
+```
+Set at: **Settings → Secrets and variables → Actions → Variables tab**
 
 ---
 
-## 6. Authentication Issues & Fixes (Full Journey)
+## 7. Authentication Issues & Fixes (Full Journey)
 
 The path to working Databricks authentication from AKS runners was non-trivial. Here is every approach tried and why it failed, along with the working solution.
 
@@ -370,7 +506,7 @@ provider "databricks" {
 
 ---
 
-## 7. Key Concepts
+## 8. Key Concepts
 
 ### AKS Workload Identity vs Managed Identity (IMDS)
 
