@@ -41,3 +41,7 @@ template:
             value: "1"
           # Workload Identity injects AZURE_FEDERATED_TOKEN_FILE, AZURE_AUTHORITY_HOST,
           # AZURE_CLIENT_ID, AZURE_TENANT_ID automatically via the mutating webhook.
+          # ARM_OIDC_TOKEN_FILE_PATH is the azurerm Terraform provider's env var for the
+          # same token file. Set it once here so all workflows get it without extra steps.
+          - name: ARM_OIDC_TOKEN_FILE_PATH
+            value: "/var/run/secrets/azure/tokens/azure-identity-token"
