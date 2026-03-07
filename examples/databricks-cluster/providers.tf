@@ -9,10 +9,13 @@ terraform {
   }
 }
 
-# Databricks provider automatically uses AKS Workload Identity env vars
-# (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE) injected
-# by the WI mutating webhook — no explicit auth configuration needed.
+# Databricks provider authenticates via AKS Workload Identity.
+# The WI webhook injects AZURE_FEDERATED_TOKEN_FILE and AZURE_TENANT_ID,
+# but the Databricks SDK reads azure_client_id from ARM_CLIENT_ID (not AZURE_CLIENT_ID).
+# Setting azure_client_id explicitly gives the SDK the identity it needs to
+# exchange the WI federated token for an Azure AD Databricks token.
 provider "databricks" {
   host                        = var.databricks_host
   azure_workspace_resource_id = var.databricks_workspace_resource_id
+  azure_client_id             = var.managed_identity_client_id
 }

@@ -10,6 +10,12 @@ variable "databricks_workspace_resource_id" {
   default     = "/subscriptions/60992dbe-c574-4373-948b-bb02216c5b0a/resourceGroups/gpt-foundry/providers/Microsoft.Databricks/workspaces/demo-workspace"
 }
 
+variable "managed_identity_client_id" {
+  description = "Client ID of the user-assigned managed identity (wi-runner-sa annotation)"
+  type        = string
+  default     = "81f11862-717d-4da8-b09d-c93f4e6ea9af"
+}
+
 variable "cluster_name" {
   description = "Display name for the Databricks cluster"
   type        = string
