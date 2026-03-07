@@ -25,14 +25,13 @@ jobs:
 
     env:
       # Workload Identity auth — no client secret required.
-      # Add these as GitHub repo Variables (Settings → Secrets and variables → Variables):
-      #   AZURE_CLIENT_ID       → terraform output -raw managed_identity_client_id
-      #   AZURE_TENANT_ID       → terraform output -raw tenant_id
-      #   AZURE_SUBSCRIPTION_ID → terraform output -raw subscription_id
-      ARM_CLIENT_ID:       ${{ vars.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID:       ${{ vars.AZURE_TENANT_ID }}
-      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      ARM_USE_OIDC:        "true"
+      ARM_CLIENT_ID:            ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID:            ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID:      ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC:             "true"
+      # AKS Workload Identity always mounts the federated token at this fixed path.
+      # The azurerm provider reads ARM_OIDC_TOKEN_FILE_PATH (not AZURE_FEDERATED_TOKEN_FILE).
+      ARM_OIDC_TOKEN_FILE_PATH: "/var/run/secrets/azure/tokens/azure-identity-token"
 
     steps:
       - name: Checkout
@@ -40,13 +39,20 @@ jobs:
 
       - name: Verify Workload Identity token
         run: |
-          echo "Runner hostname : $(hostname)"
-          echo "Client ID       : ${ARM_CLIENT_ID}"
-          echo "Subscription    : ${ARM_SUBSCRIPTION_ID}"
-          if [ -f "${AZURE_FEDERATED_TOKEN_FILE}" ]; then
-            echo "Federated token : present at ${AZURE_FEDERATED_TOKEN_FILE}"
+          echo "Runner hostname          : $(hostname)"
+          echo "ARM_CLIENT_ID            : ${ARM_CLIENT_ID}"
+          echo "ARM_TENANT_ID            : ${ARM_TENANT_ID}"
+          echo "ARM_SUBSCRIPTION_ID      : ${ARM_SUBSCRIPTION_ID}"
+          echo "ARM_OIDC_TOKEN_FILE_PATH : ${ARM_OIDC_TOKEN_FILE_PATH}"
+          echo "AZURE_FEDERATED_TOKEN_FILE: ${AZURE_FEDERATED_TOKEN_FILE}"
+          TOKEN_FILE="${ARM_OIDC_TOKEN_FILE_PATH}"
+          if [ -f "${TOKEN_FILE}" ]; then
+            echo "Token file: present at ${TOKEN_FILE}"
+            # Decode JWT payload to verify issuer, subject, and audience
+            PAYLOAD=$(cat "${TOKEN_FILE}" | cut -d'.' -f2 | awk '{n=length($0)%4; if(n==2) $0=$0"=="; else if(n==3) $0=$0"="; print}' | base64 -d 2>/dev/null || true)
+            echo "Token claims: ${PAYLOAD}"
           else
-            echo "ERROR: Federated token file not found — check WI service account setup"
+            echo "ERROR: Token file not found at ${TOKEN_FILE}"
             exit 1
           fi
 
