@@ -1,0 +1,16 @@
+---
+# Kubernetes Service Account for runner pods with Azure Workload Identity.
+# The annotation azure.workload.identity/client-id links this SA to the
+# user-assigned managed identity created in terraform/workload-identity.tf.
+#
+# Replace <MANAGED_IDENTITY_CLIENT_ID> with:
+#   terraform output -raw managed_identity_client_id
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wi-runner-sa
+  namespace: arc-runners
+  annotations:
+    azure.workload.identity/client-id: "<MANAGED_IDENTITY_CLIENT_ID>"
+  labels:
+    azure.workload.identity/use: "true"

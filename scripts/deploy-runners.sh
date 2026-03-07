@@ -82,6 +82,22 @@ helm upgrade --install "${RUNNER_RELEASE_NAME}" \
 
 echo "    Runner scale set installed."
 
+# ── Workload Identity Service Account ─────────────────────────────────────────
+# Apply the Kubernetes SA that links to the Azure managed identity.
+# Requires: terraform output -raw managed_identity_client_id
+if [[ -n "${MANAGED_IDENTITY_CLIENT_ID:-}" ]]; then
+  echo "==> Applying Workload Identity service account..."
+  K8S_DIR="$(cd "${SCRIPT_DIR}/../k8s" && pwd)"
+  sed "s/<MANAGED_IDENTITY_CLIENT_ID>/${MANAGED_IDENTITY_CLIENT_ID}/" \
+    "${K8S_DIR}/workload-identity-sa.yaml" | kubectl apply -f -
+  echo "    Workload Identity service account applied."
+else
+  echo "==> Skipping Workload Identity SA (MANAGED_IDENTITY_CLIENT_ID not set)."
+  echo "    To apply later:"
+  echo "      export MANAGED_IDENTITY_CLIENT_ID=\$(cd terraform && terraform output -raw managed_identity_client_id)"
+  echo "      ./scripts/deploy-runners.sh"
+fi
+
 # ── Verification ───────────────────────────────────────────────────────────────
 echo ""
 echo "==> Verifying deployment..."

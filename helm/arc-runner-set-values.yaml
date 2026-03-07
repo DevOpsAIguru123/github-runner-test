@@ -19,7 +19,11 @@ maxRunners: 5
 
 # Runner pod template
 template:
+  metadata:
+    labels:
+      azure.workload.identity/use: "true"   # required for AKS Workload Identity token injection
   spec:
+    serviceAccountName: wi-runner-sa        # annotated with managed identity client ID
     containers:
       - name: runner
         image: ghcr.io/actions/actions-runner:latest
@@ -35,3 +39,5 @@ template:
         env:
           - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
             value: "1"
+          # Workload Identity injects AZURE_FEDERATED_TOKEN_FILE, AZURE_AUTHORITY_HOST,
+          # AZURE_CLIENT_ID, AZURE_TENANT_ID automatically via the mutating webhook.

@@ -1,0 +1,79 @@
+name: Deploy Storage Account
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to run"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action }}
+    runs-on: aks-runners
+
+    defaults:
+      run:
+        working-directory: examples/storage-account
+
+    env:
+      # Workload Identity auth — no client secret required.
+      # Add these as GitHub repo Variables (Settings → Secrets and variables → Variables):
+      #   AZURE_CLIENT_ID       → terraform output -raw managed_identity_client_id
+      #   AZURE_TENANT_ID       → terraform output -raw tenant_id
+      #   AZURE_SUBSCRIPTION_ID → terraform output -raw subscription_id
+      ARM_CLIENT_ID:       ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID:       ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC:        "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Workload Identity token
+        run: |
+          echo "Runner hostname : $(hostname)"
+          echo "Client ID       : ${ARM_CLIENT_ID}"
+          echo "Subscription    : ${ARM_SUBSCRIPTION_ID}"
+          if [ -f "${AZURE_FEDERATED_TOKEN_FILE}" ]; then
+            echo "Federated token : present at ${AZURE_FEDERATED_TOKEN_FILE}"
+          else
+            echo "ERROR: Federated token file not found — check WI service account setup"
+            exit 1
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.5"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        continue-on-error: true
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+        if: >
+          github.event.inputs.action == 'plan' ||
+          github.event.inputs.action == 'apply'
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        if: github.event.inputs.action == 'apply'
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+        if: github.event.inputs.action == 'destroy'
