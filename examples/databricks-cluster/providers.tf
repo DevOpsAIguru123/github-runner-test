@@ -9,12 +9,9 @@ terraform {
   }
 }
 
-# Databricks provider authenticates via AKS Workload Identity using MSI path.
-# azure_use_msi = true activates the managed identity credential chain.
-# azure_client_id explicitly targets the user-assigned managed identity
-# that has been added to the Databricks workspace as an admin.
+# Authentication via DATABRICKS_AAD_TOKEN env var set in the workflow.
+# The workflow exchanges the AKS Workload Identity OIDC token for an
+# Azure AD access token scoped to Databricks before Terraform runs.
 provider "databricks" {
-  host            = var.databricks_host
-  azure_client_id = var.managed_identity_client_id
-  azure_use_msi   = true
+  host = var.databricks_host
 }

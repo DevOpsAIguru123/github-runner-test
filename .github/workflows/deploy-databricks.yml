@@ -26,6 +26,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Exchange WI token for Databricks AAD token
+        run: |
+          OIDC_TOKEN=$(cat "${AZURE_FEDERATED_TOKEN_FILE}")
+          RESPONSE=$(curl -s -X POST \
+            "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "client_id=${AZURE_CLIENT_ID}" \
+            --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
+            --data-urlencode "client_assertion=${OIDC_TOKEN}" \
+            --data-urlencode "scope=2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default")
+          TOKEN=$(echo "$RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+          if [ -z "$TOKEN" ]; then
+            echo "Token exchange failed: $RESPONSE"
+            exit 1
+          fi
+          echo "DATABRICKS_AAD_TOKEN=${TOKEN}" >> $GITHUB_ENV
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
