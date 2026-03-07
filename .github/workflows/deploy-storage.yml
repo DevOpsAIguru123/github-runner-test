@@ -29,9 +29,6 @@ jobs:
       ARM_TENANT_ID:            ${{ vars.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID:      ${{ vars.AZURE_SUBSCRIPTION_ID }}
       ARM_USE_OIDC:             "true"
-      # AKS Workload Identity always mounts the federated token at this fixed path.
-      # The azurerm provider reads ARM_OIDC_TOKEN_FILE_PATH (not AZURE_FEDERATED_TOKEN_FILE).
-      ARM_OIDC_TOKEN_FILE_PATH: "/var/run/secrets/azure/tokens/azure-identity-token"
 
     steps:
       - name: Checkout
